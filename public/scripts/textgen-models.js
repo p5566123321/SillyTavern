@@ -21,98 +21,6 @@ let llamacppModels = [];
 export let openRouterModels = [];
 
 /**
- * List of OpenRouter providers.
- * @type {string[]}
- */
-const OPENROUTER_PROVIDERS = [
-    // Providers endpoint: https://openrouter.ai/api/v1/providers
-    // The list should resemble the sidebar from https://openrouter.ai/models
-    // Their docs no longer displays the list, which had "super dead" ones at top, thankfully gone from /v1/providers
-    'AI21',
-    'AionLabs',
-    'Alibaba',
-    'AkashML',
-    'Amazon Bedrock',
-    'Amazon Nova',
-    'Ambient',
-    'Anthropic',
-    'Arcee AI',
-    'AtlasCloud',
-    'Avian',
-    'Azure',
-    'Baidu',
-    'BaseTen',
-    'Black Forest Labs',
-    'Cerebras',
-    'Chutes',
-    'Cirrascale',
-    'Clarifai',
-    'Cloudflare',
-    'Cohere',
-    'Crucible',
-    'Crusoe',
-    'DeepInfra',
-    'DeepSeek',
-    'DekaLLM',
-    'FakeProvider',
-    'Featherless',
-    'Fireworks',
-    'Friendli',
-    'GMICloud',
-    'Google',
-    'Google AI Studio',
-    'Groq',
-    'Hyperbolic',
-    'Inception',
-    'Inceptron',
-    'InferenceNet',
-    'Infermatic',
-    'Inflection',
-    'Io Net',
-    'Ionstream',
-    'Liquid',
-    'Mancer 2',
-    'Mara',
-    'Minimax',
-    'Mistral',
-    'ModelRun',
-    'Modular',
-    'Moonshot AI',
-    'Morph',
-    'NCompass',
-    'Nebius',
-    'Nex AGI',
-    'NextBit',
-    'Novita',
-    'Nvidia',
-    'OpenAI',
-    'OpenInference',
-    'Parasail',
-    'Perceptron',
-    'Perplexity',
-    'Phala',
-    'Poolside',
-    'Recraft',
-    'Reka',
-    'Relace',
-    'SambaNova',
-    'Seed',
-    'SiliconFlow',
-    'Sourceful',
-    'Stealth',
-    'StepFun',
-    'StreamLake',
-    'Switchpoint',
-    'Together',
-    'Upstage',
-    'Venice',
-    'WandB',
-    'xAI',
-    'Xiaomi',
-    'Z.AI',
-];
-
-/**
  * List of NanoGPT providers.
  * Providers endpoint: https://nano-gpt.com/api/models/providers
  * @type {{id: string, label: string}[]}
@@ -347,6 +255,39 @@ const OPENROUTER_PROVIDER_WARNING_SELECTORS = {
     },
 };
 
+/**
+ * Normalizes an OpenRouter provider identifier for comparison ("Sail Research" -> "sail-research").
+ * @param {string} value Provider name, slug or endpoint tag
+ * @returns {string}
+ */
+function normalizeOpenRouterProvider(value) {
+    return String(value).trim().toLowerCase().replace(/s+/g, '-');
+}
+
+/**
+ * Makes sure the given values exist as options of the OpenRouter provider selects,
+ * so that saved free-form entries (provider names or endpoint tags) can be shown as selected.
+ * @param {string[]} providerNames Provider names or endpoint tags
+ * @param {string} selector Selector of the provider select element(s)
+ */
+export function ensureOpenRouterProviderOptions(providerNames, selector) {
+    if (!Array.isArray(providerNames)) {
+        return;
+    }
+
+    $(selector).each(function () {
+        const $select = $(this);
+        const existing = new Set($select.find('option').map((_, option) => String($(option).val())).get());
+        for (const name of providerNames) {
+            if (typeof name !== 'string' || !name || existing.has(name)) {
+                continue;
+            }
+            $select.append($('<option>', { value: name, text: name }));
+            existing.add(name);
+        }
+    });
+}
+
 export function updateOpenRouterProvidersWarning(providersSelector) {
     const $providers = $(providersSelector);
 
@@ -359,10 +300,12 @@ export function updateOpenRouterProvidersWarning(providersSelector) {
     const $fallback = $(warningSelectors.fallbackSelector);
     const $warning = $(warningSelectors.warningSelector);
 
+    /** @type {Set<string>|undefined} Identifiers available for the current model, if known */
+    const available = $providers.data('availableProviders');
     const allowFallback = !!$fallback.prop('checked');
-    const selectedCount = $providers.find('option:selected').length;
-    const applicableSelectedCount = $providers.find('option:selected:not(:disabled)').length;
-    const showWarning = !allowFallback && selectedCount > 0 && applicableSelectedCount === 0;
+    const selected = $providers.find('option:selected').map((_, option) => String($(option).val())).get();
+    const hasApplicable = !available || selected.some(value => available.has(normalizeOpenRouterProvider(value)));
+    const showWarning = !allowFallback && selected.length > 0 && !hasApplicable;
 
     $warning.toggleClass('displayNone', !showWarning);
 }
@@ -374,9 +317,9 @@ export async function syncOpenRouterProvidersForModel(modelId, providersSelector
         updateOpenRouterProvidersWarning(providersSelector);
     };
 
+    $providers.removeData('availableProviders');
+
     if (!modelId || !modelId.includes('/')) {
-        $providers.find('option').prop('disabled', false);
-        $providers.trigger('change.select2');
         refreshWarningState();
         return;
     }
@@ -395,19 +338,17 @@ export async function syncOpenRouterProvidersForModel(modelId, providersSelector
 
         const providerNames = await response.json();
 
-        if (!Array.isArray(providerNames) || providerNames.length === 0) {
-            $providers.find('option').prop('disabled', false);
-            $providers.trigger('change.select2');
-            refreshWarningState();
-            return;
+        if (Array.isArray(providerNames) && providerNames.length > 0) {
+            // Accept the provider name, the endpoint tag ("deepinfra/fp8") and the provider slug ("deepinfra").
+            const available = new Set();
+            for (const name of providerNames) {
+                const normalized = normalizeOpenRouterProvider(name);
+                available.add(normalized);
+                available.add(normalized.split('/')[0]);
+            }
+            $providers.data('availableProviders', available);
         }
 
-        $providers.find('option').each(function () {
-            const isAvailable = providerNames.includes($(this).val());
-            $(this).prop('disabled', !isAvailable);
-        });
-
-        $providers.trigger('change.select2');
         refreshWarningState();
     } catch (error) {
         console.error('Failed to fetch OpenRouter providers for model', error);
@@ -1401,12 +1342,6 @@ export function initTextGenModels() {
     $('#featherless_model').on('change', () => onFeatherlessModelSelect(String($('#featherless_model').val())));
 
     const providersSelect = $('.openrouter_providers');
-    for (const provider of OPENROUTER_PROVIDERS) {
-        providersSelect.append($('<option>', {
-            value: provider,
-            text: provider,
-        }));
-    }
 
     const nanoGptProvidersSelect = $('#nanogpt_provider');
     for (const provider of NANOGPT_PROVIDERS) {
@@ -1502,20 +1437,38 @@ export function initTextGenModels() {
             width: '100%',
         });
         providersSelect.select2({
-            sorter: data => data.sort((a, b) => a.text.localeCompare(b.text)),
-            placeholder: t`Select providers. No selection = all providers.`,
-            searchInputPlaceholder: t`Search providers...`,
+            // Free-form entry: provider names ("DeepInfra") or endpoint tags ("deepinfra/fp8"), in priority order.
+            tags: true,
+            tokenSeparators: [','],
+            createTag: (/** @type {any} */ params) => {
+                const term = String(params.term ?? '').trim();
+                return term ? { id: term, text: term, newTag: true } : null;
+            },
+            placeholder: t`Type provider names or endpoint tags (e.g. deepinfra/fp8), press Enter to add. Empty = all providers.`,
+            searchInputPlaceholder: t`Type a provider or endpoint tag...`,
             searchInputCssClass: 'text_pole',
             width: '100%',
             closeOnSelect: false,
         });
         providersSelect.on('select2:select', function (/** @type {any} */ evt) {
             const element = evt.params.data.element;
-            const $element = $(element);
+            if (!element) {
+                return;
+            }
 
+            // Keep the selection order (it is the routing priority order).
+            const $element = $(element);
             $element.detach();
             $(this).append($element);
             $(this).trigger('change');
+        });
+        providersSelect.on('select2:unselect', function (/** @type {any} */ evt) {
+            // Do not keep removed entries around as dropdown options.
+            const element = evt.params.data.element;
+            if (element) {
+                $(element).remove();
+                $(this).trigger('change');
+            }
         });
         nanoGptProvidersSelect.select2({
             sorter: data => data.sort((a, b) => a.text.localeCompare(b.text)),

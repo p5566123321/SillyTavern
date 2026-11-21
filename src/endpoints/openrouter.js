@@ -24,9 +24,11 @@ router.post('/models/providers', async (req, res) => {
         /** @type {any} */
         const data = await response.json();
         const endpoints = data?.data?.endpoints || [];
-        const providerNames = endpoints.map(e => e.provider_name);
+        // Include both provider names (e.g. "DeepInfra") and endpoint tags (e.g. "deepinfra/fp8"),
+        // since OpenRouter's provider.order accepts either.
+        const providerNames = endpoints.flatMap(e => [e.provider_name, e.tag]).filter(x => typeof x === 'string' && x);
 
-        return res.json(providerNames);
+        return res.json([...new Set(providerNames)]);
     } catch (error) {
         console.error(error);
         return res.sendStatus(500);
