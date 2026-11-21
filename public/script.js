@@ -6467,7 +6467,13 @@ export function cleanUpMessage({ getMessage, isImpersonate, isContinue, displayI
         !isContinue &&
         power_user.user_prompt_bias.length !== 0
     ) {
-        getMessage = substituteParams(power_user.user_prompt_bias) + getMessage;
+        const replacedBias = substituteParams(power_user.user_prompt_bias);
+        // Some providers/models ignore the trailing-assistant prefill and restart the reply,
+        // echoing the bias themselves. Don't prepend it a second time in that case.
+        const echoedBias = replacedBias.trim().length > 0 && getMessage.trimStart().startsWith(replacedBias.trim());
+        if (!echoedBias) {
+            getMessage = replacedBias + getMessage;
+        }
     }
 
     // Allow for caching of stopping strings. getStoppingStrings is an expensive function, especially with macros
