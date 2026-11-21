@@ -81,7 +81,7 @@ import { t } from './i18n.js';
 import { ToolManager } from './tool-calling.js';
 import { accountStorage } from './util/AccountStorage.js';
 import { COMETAPI_IGNORE_PATTERNS, IGNORE_SYMBOL, MEDIA_DISPLAY, MEDIA_TYPE } from './constants.js';
-import { syncNanoGptProvidersForModel, syncOpenRouterProvidersForModel, updateNanoGptProvidersWarning, updateOpenRouterProvidersWarning } from './textgen-models.js';
+import { ensureOpenRouterProviderOptions, syncNanoGptProvidersForModel, syncOpenRouterProvidersForModel, updateNanoGptProvidersWarning, updateOpenRouterProvidersWarning } from './textgen-models.js';
 
 export {
     openai_messages_count,
@@ -4351,6 +4351,9 @@ function loadOpenAISettings(data, settings) {
             if ($element.is('input[type="checkbox"]')) {
                 $element.prop('checked', oai_settings[key]);
             } else if ($element.is('select')) {
+                if (key === 'openrouter_providers') {
+                    ensureOpenRouterProviderOptions(oai_settings[key], selector);
+                }
                 $element.val(oai_settings[key]);
                 $element.find(`option[value="${CSS.escape(oai_settings[key])}"]`).prop('selected', true);
             } else {
@@ -5058,6 +5061,9 @@ function onSettingsPresetChange() {
                 if (isCheckbox) {
                     updateCheckbox(selector, preset[key]);
                 } else {
+                    if (key === 'openrouter_providers') {
+                        ensureOpenRouterProviderOptions(preset[key], selector);
+                    }
                     updateInput(selector, preset[key]);
                 }
                 oai_settings[setting] = preset[key];
