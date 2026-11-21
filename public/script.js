@@ -3081,7 +3081,7 @@ export function getStoppingStrings(isImpersonate, isContinue, api = main_api) {
  * @param {GenerateQuietPromptParams} params Parameters for the quiet prompt generation
  * @returns {Promise<string>} Generated text. If using structured output, will contain a serialized JSON object.
  */
-export async function generateQuietPrompt({ quietPrompt = '', quietToLoud = false, skipWIAN = false, quietImage = null, quietName = null, responseLength = null, forceChId = null, jsonSchema = null, removeReasoning = true, trimToSentence = false } = {}) {
+export async function generateQuietPrompt({ quietPrompt = '', quietToLoud = false, skipWIAN = false, quietImage = null, quietName = null, responseLength = null, forceChId = null, jsonSchema = null, removeReasoning = true, trimToSentence = false, skipPromptBias = false } = {}) {
     if (arguments.length > 0 && typeof arguments[0] !== 'object') {
         console.trace('generateQuietPrompt called with positional arguments. Please use an object instead.');
         [quietPrompt, quietToLoud, skipWIAN, quietImage, quietName, responseLength, forceChId, jsonSchema] = arguments;
@@ -3100,6 +3100,7 @@ export async function generateQuietPrompt({ quietPrompt = '', quietToLoud = fals
             quietName: quietName ?? null,
             force_chid: forceChId ?? null,
             jsonSchema: jsonSchema ?? null,
+            skipPromptBias: skipPromptBias ?? false,
         };
         if (responseLengthCustomized) {
             TempResponseLength.save(main_api, responseLength);
@@ -4277,6 +4278,7 @@ function removeLastMessage() {
  * @property {string} [quietName] Name to use for the quiet prompt (defaults to "System:")
  * @property {number} [depth] Recursion depth for the generation. Used to prevent infinite loops in tool calls.
  * @property {JsonSchema} [jsonSchema] JSON schema to use for the structured generation. Usually requires a special instruction.
+ * @property {boolean} [skipPromptBias] Do not apply the user's "Start Reply With" (prompt bias) to this generation.
  */
 
 /**
@@ -4287,7 +4289,7 @@ function removeLastMessage() {
  * @param {boolean} dryRun Whether to actually generate a message or just assemble the prompt
  * @returns {Promise<any>} Returns a promise that resolves when the text is done generating.
  */
-export async function Generate(type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, jsonSchema = null, depth = 0 } = {}, dryRun = false) {
+export async function Generate(type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, jsonSchema = null, skipPromptBias = false, depth = 0 } = {}, dryRun = false) {
     console.log('Generate entered');
     setGenerationProgress(0);
     generation_started = new Date();
@@ -4431,6 +4433,11 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
     }
 
     let { messageBias, promptBias, isUserPromptBias } = getBiasStrings(textareaText, type);
+
+    if (skipPromptBias) {
+        promptBias = '';
+        isUserPromptBias = false;
+    }
 
     //*********************************
     //PRE FORMATING STRING
@@ -5399,6 +5406,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
                 isImpersonate: isImpersonate,
                 isContinue: isContinue,
                 displayIncompleteSentences: false,
+                includeUserPromptBias: !skipPromptBias,
             });
 
             if (isContinue) {
@@ -5497,6 +5505,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
             isImpersonate: isImpersonate,
             isContinue: isContinue,
             displayIncompleteSentences: false,
+            includeUserPromptBias: !skipPromptBias,
         });
 
 
@@ -5518,6 +5527,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
             isImpersonate: isImpersonate,
             isContinue: isContinue,
             displayIncompleteSentences: displayIncomplete,
+            includeUserPromptBias: !skipPromptBias,
         });
 
         if (isImpersonate) {

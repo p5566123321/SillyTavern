@@ -3291,7 +3291,7 @@ function getUserAvatarUrl() {
  */
 async function generatePrompt(quietPrompt) {
     const toast = toastr.info('Generating image prompt with an LLM...', 'Image Generation');
-    const reply = await generateQuietPrompt({ quietPrompt });
+    const reply = await generateQuietPrompt({ quietPrompt, skipPromptBias: true });
     const processedReply = processReply(reply);
     toastr.clear(toast);
 
