@@ -2898,6 +2898,10 @@ function processReply(str) {
         return '';
     }
 
+    // Strip GM scaffolding blocks that roleplay setups may force into every reply
+    str = str.replace(/<(gm_check|rpg_state)>[\s\S]*?(<\/\1>|$)/gi, ' ');
+    str = str.replace(/<\/?(gm_check|rpg_state)>/gi, ' ');
+
     if (extension_settings.sd.minimal_prompt_processing) {
         // Minimal prompt processing
         // JSON and similar should be preserved
