@@ -811,6 +811,14 @@ async function getRecentChats() {
         chat.avatar = chat.avatar || '';
         chat.group = chat.group || '';
         chat.pinned = PinnedChatsManager.isPinned(chat);
+        // Run the prompt-side regex scripts over the preview so hidden blocks (e.g. GM notes, status panels) don't leak.
+        // A large depth lets depth-limited scripts apply as they would to an old message.
+        if (typeof chat.mes === 'string' && chat.mes) {
+            const cleaned = getRegexedString(chat.mes, regex_placement.AI_OUTPUT, { isPrompt: true, depth: 999 }).trim();
+            if (cleaned) {
+                chat.mes = cleaned;
+            }
+        }
     });
 
     return dataWithEntities.map(t => t.chat);

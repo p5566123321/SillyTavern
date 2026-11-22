@@ -769,10 +769,34 @@ export async function forwardFetchResponse(from, to) {
             to.end(); // End the Express response
         });
 
+        // If the upstream stalls (no bytes for a long time), end the response so the client
+        // finalizes the partial reply instead of waiting forever.
+        const STREAM_IDLE_TIMEOUT_MS = 120_000;
+        let idleTimer = null;
+        const resetIdleTimer = () => {
+            clearTimeout(idleTimer);
+            idleTimer = setTimeout(() => {
+                console.warn(`Streaming request stalled for ${STREAM_IDLE_TIMEOUT_MS / 1000}s, closing it`);
+                if (from.body instanceof Readable) from.body.destroy();
+                to.end();
+            }, STREAM_IDLE_TIMEOUT_MS);
+        };
+        resetIdleTimer();
+        from.body.on('data', resetIdleTimer);
+
+        from.body.on('error', function (err) {
+            clearTimeout(idleTimer);
+            console.warn('Streaming request failed mid-stream:', err?.message ?? err);
+            to.end();
+        });
+
         from.body.on('end', function () {
+            clearTimeout(idleTimer);
             console.info('Streaming request finished');
             to.end();
         });
+
+        from.body.on('close', () => clearTimeout(idleTimer));
     } else {
         to.end();
     }

@@ -3902,6 +3902,15 @@ class StreamingProcessor {
             // in the case of a self-inflicted abort, we have already cleaned up
             if (!this.isFinished) {
                 console.error(err);
+                // A stream that breaks mid-way (connection reset, malformed chunk) is finalized like a normal
+                // finish, so the partial reply is saved and MESSAGE_RENDERED fires (also for swipes), letting
+                // auto-retry scripts detect it. Only a user abort skips this.
+                if (!this.abortController.signal.aborted) {
+                    console.warn('Streaming interrupted, finalizing partial reply:', err);
+                    toastr.warning(t`The response stream was interrupted. The partial reply was kept.`);
+                    this.isFinished = true;
+                    return this.result;
+                }
                 this.onErrorStreaming();
             }
             return this.result;
@@ -6470,7 +6479,10 @@ export function cleanUpMessage({ getMessage, isImpersonate, isContinue, displayI
         const replacedBias = substituteParams(power_user.user_prompt_bias);
         // Some providers/models ignore the trailing-assistant prefill and restart the reply,
         // echoing the bias themselves. Don't prepend it a second time in that case.
-        const echoedBias = replacedBias.trim().length > 0 && getMessage.trimStart().startsWith(replacedBias.trim());
+        // Compare without whitespace: models often echo the bias with different line breaks (e.g. "<gm_check>①局面：").
+        const stripWhitespace = (/** @type {string} */ s) => s.replace(/\s+/g, '');
+        const biasKey = stripWhitespace(replacedBias);
+        const echoedBias = biasKey.length > 0 && stripWhitespace(getMessage.slice(0, replacedBias.length * 2 + 16)).startsWith(biasKey);
         if (!echoedBias) {
             getMessage = replacedBias + getMessage;
         }
@@ -8594,6 +8606,24 @@ export async function displayPastChats(hightlightNames = []) {
     addChatBackupsBrowser();
 }
 
+/**
+ * Builds the past-chats list preview: applies prompt-side regex scripts to the full last message
+ * (so hidden blocks such as GM notes don't leak), then trims it like the server-side preview.
+ * @param {{preview_message?: string, last_message?: string}} chat Chat search result
+ * @returns {string} Preview text
+ */
+function getChatListPreview(chat) {
+    const previewLength = 400;
+    if (typeof chat.last_message !== 'string' || !chat.last_message) {
+        return chat.preview_message ?? '';
+    }
+    const cleaned = getRegexedString(chat.last_message, regex_placement.AI_OUTPUT, { isPrompt: true, depth: 999 }).trim();
+    if (!cleaned) {
+        return chat.preview_message ?? '';
+    }
+    return cleaned.length > previewLength ? '...' + cleaned.substring(cleaned.length - previewLength) : cleaned;
+}
+
 async function displayChats(searchQuery, currentChat, displayName, avatarImg, selected_group, highlightNames) {
     try {
         const response = await fetch('/api/chats/search', {
@@ -8623,7 +8653,7 @@ async function displayChats(searchQuery, currentChat, displayName, avatarImg, se
             template.find('.select_chat_block_filename').text(chat.file_name);
             template.find('.chat_file_size').text(`(${chat.file_size},`);
             template.find('.chat_messages_num').text(`${chat.message_count} 💬)`);
-            template.find('.select_chat_block_mes').text(chat.preview_message);
+            template.find('.select_chat_block_mes').text(getChatListPreview(chat));
             template.find('.PastChat_cross').attr('file_name', chat.file_name);
             template.find('.chat_messages_date').text(timestampToMoment(chat.last_mes).format('lll'));
 

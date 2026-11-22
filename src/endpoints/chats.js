@@ -1040,6 +1040,8 @@ router.post('/search', validateAvatarUrlMiddleware, async function (request, res
                     message_count: chatInfo.chat_items,
                     last_mes: chatInfo.last_mes,
                     preview_message: getPreviewMessage(chatInfo.mes),
+                    // Full text so the client can apply regex scripts before trimming the preview.
+                    last_message: chatInfo.mes,
                 });
             }
         }

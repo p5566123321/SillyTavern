@@ -69,6 +69,7 @@ import {
 import { getVertexAIAuth, getProjectIdFromServiceAccount } from '../google.js';
 import { getCookieSecret } from '../../users.js';
 import { fetchGoogleModels, GoogleModelsHttpError } from './google-models.js';
+import { attachGenerationLogger } from '../../generation-log.js';
 
 const API_OPENAI = 'https://api.openai.com/v1';
 const API_CLAUDE = 'https://api.anthropic.com/v1';
@@ -2690,6 +2691,13 @@ router.post('/generate', async function (request, response) {
 
         if (request.body.stream) {
             console.info('Streaming request in progress');
+            attachGenerationLogger(fetchResponse, {
+                directory: request.user.directories.root,
+                source: request.body.chat_completion_source,
+                model: request.body.model,
+                maxTokens: request.body.max_tokens,
+                providers: request.body.provider,
+            });
             return await forwardFetchResponse(fetchResponse, response);
         }
 
