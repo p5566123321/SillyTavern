@@ -60,4 +60,4 @@ yarn.lock
 *.code-workspace
 test-results/
 playtest-reports/
-.claude/skills/serantia-playtest/
+.claude
