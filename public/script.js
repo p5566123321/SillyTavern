@@ -5337,6 +5337,19 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         return Promise.resolve();
     }
 
+    /** @type {StreamingProcessor|null} The streaming processor created by this Generate call */
+    let ownStreamingProcessor = null;
+
+    /**
+     * Clears the global streamingProcessor only if it still belongs to this generation.
+     * A nested generation (e.g. /swipe fired from an auto-executed Quick Reply) may have replaced it.
+     */
+    function releaseStreamingProcessor() {
+        if (streamingProcessor === ownStreamingProcessor) {
+            streamingProcessor = null;
+        }
+    }
+
     /**
      * Saves itemized prompt bits and calls streaming or non-streaming generation API.
      * @returns {Promise<void|*|Awaited<*>|String|{fromStream}|string|undefined|Object>}
@@ -5400,16 +5413,20 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
 
         if (isStreamingEnabled() && type !== 'quiet') {
             continue_mag = promptReasoning.removePrefix(continue_mag);
-            streamingProcessor = new StreamingProcessor(type, force_name2, generation_started, continue_mag, promptReasoning);
+            // Keep a local reference: an auto-executed /swipe (e.g. a Quick Reply on CHARACTER_MESSAGE_RENDERED)
+            // can start a new generation before this one returns, overwriting the global streamingProcessor.
+            const processor = new StreamingProcessor(type, force_name2, generation_started, continue_mag, promptReasoning);
+            streamingProcessor = processor;
+            ownStreamingProcessor = processor;
             if (isContinue) {
                 // Save reply does add cycle text to the prompt, so it's not needed here
-                streamingProcessor.firstMessageText = '';
+                processor.firstMessageText = '';
             }
 
-            streamingProcessor.generator = await sendStreamingRequest(type, generate_data, { jsonSchema });
+            processor.generator = await sendStreamingRequest(type, generate_data, { jsonSchema });
 
             hideSwipeButtons();
-            let getMessage = await streamingProcessor.generate();
+            let getMessage = await processor.generate();
             let messageChunk = cleanUpMessage({
                 getMessage: getMessage,
                 isImpersonate: isImpersonate,
@@ -5422,18 +5439,18 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
                 getMessage = continue_mag + getMessage;
             }
 
-            const isStreamFinished = streamingProcessor && !streamingProcessor.isStopped && streamingProcessor.isFinished;
-            const isStreamWithToolCalls = streamingProcessor && Array.isArray(streamingProcessor.toolCalls) && streamingProcessor.toolCalls.length;
+            const isStreamFinished = processor && !processor.isStopped && processor.isFinished;
+            const isStreamWithToolCalls = processor && Array.isArray(processor.toolCalls) && processor.toolCalls.length;
             if (canPerformToolCalls && isStreamFinished && isStreamWithToolCalls) {
                 const lastMessage = chat[chat.length - 1];
-                const hasToolCalls = ToolManager.hasToolCalls(streamingProcessor.toolCalls);
-                const shouldDeleteMessage = type !== 'swipe' && ['', '...'].includes(lastMessage?.mes) && !lastMessage?.extra?.reasoning && ['', '...'].includes(streamingProcessor?.result);
+                const hasToolCalls = ToolManager.hasToolCalls(processor.toolCalls);
+                const shouldDeleteMessage = type !== 'swipe' && ['', '...'].includes(lastMessage?.mes) && !lastMessage?.extra?.reasoning && ['', '...'].includes(processor?.result);
                 hasToolCalls && shouldDeleteMessage && await deleteLastMessage();
                 if (hasToolCalls && !shouldDeleteMessage) {
-                    await streamingProcessor.finalizeIntermediaryMessage(streamingProcessor.messageId, getMessage, { unlockUI: false });
+                    await processor.finalizeIntermediaryMessage(processor.messageId, getMessage, { unlockUI: false });
                 }
-                const invocationResult = await ToolManager.invokeFunctionTools(streamingProcessor.toolCalls, {
-                    reasoningText: streamingProcessor.reasoningHandler.reasoning,
+                const invocationResult = await ToolManager.invokeFunctionTools(processor.toolCalls, {
+                    reasoningText: processor.reasoningHandler.reasoning,
                 });
                 const shouldStopGeneration = (!invocationResult.invocations.length && shouldDeleteMessage) || invocationResult.stealthCalls.length;
                 if (hasToolCalls) {
@@ -5442,11 +5459,11 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
                             ToolManager.showToolCallError(invocationResult.errors);
                         }
                         unblockGeneration(type);
-                        streamingProcessor = null;
+                        releaseStreamingProcessor();
                         return;
                     }
 
-                    streamingProcessor = null;
+                    releaseStreamingProcessor();
                     depth = depth + 1;
                     await ToolManager.saveFunctionToolInvocations(invocationResult.invocations);
                     return Generate('normal', { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, depth }, dryRun);
@@ -5454,8 +5471,8 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
             }
 
             if (isStreamFinished) {
-                await streamingProcessor.onFinishStreaming(streamingProcessor.messageId, getMessage);
-                streamingProcessor = null;
+                await processor.onFinishStreaming(processor.messageId, getMessage);
+                releaseStreamingProcessor();
                 triggerAutoContinue(messageChunk, isImpersonate);
                 return Object.defineProperties(new String(getMessage), {
                     'messageChunk': { value: messageChunk },
@@ -5591,7 +5608,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         console.debug('/api/chats/save called by /Generate');
         await saveChatConditional();
         unblockGeneration(type);
-        streamingProcessor = null;
+        releaseStreamingProcessor();
 
         if (type !== 'quiet') {
             triggerAutoContinue(messageChunk, isImpersonate);
@@ -5614,7 +5631,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
 
         unblockGeneration(type);
         console.log(exception);
-        streamingProcessor = null;
+        releaseStreamingProcessor();
         throw exception;
     }
 }
@@ -5633,6 +5650,10 @@ export function stopGeneration() {
         abortController.abort('Clicked stop button');
         hideStopButton();
         stopped = true;
+    }
+    // Recovery: if no streaming processor owns the UI lock (e.g. it was orphaned), unlock sending so the user isn't stuck.
+    if (!streamingProcessor && is_send_press) {
+        unblockGeneration();
     }
     eventSource.emit(event_types.GENERATION_STOPPED);
     return stopped;
