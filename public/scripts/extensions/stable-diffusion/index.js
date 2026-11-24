@@ -3017,7 +3017,12 @@ async function generatePicture(initiator, args, trigger, message, callback) {
         ? context.groups[Object.keys(context.groups).filter(x => context.groups[x].id === context.groupId)[0]]?.id?.toString()
         : context.characters[context.characterId]?.name;
 
+    if (isTrueBoolean(args?.quiet)) {
+        callback = () => { };
+    }
+
     if (generationType === generationMode.BACKGROUND) {
+        // The background is stored in chat metadata, so it is not also posted as a chat message.
         const callbackOriginal = callback;
         callback = async function (prompt, imagePath, generationType, _negativePromptPrefix, _initiator, prefixedPrompt, format) {
             const imgUrl = `url("${encodeURI(imagePath)}")`;
@@ -3025,14 +3030,8 @@ async function generatePicture(initiator, args, trigger, message, callback) {
 
             if (typeof callbackOriginal === 'function') {
                 await callbackOriginal(prompt, imagePath, generationType, negativePromptPrefix, initiator, prefixedPrompt, format);
-            } else {
-                await sendMessage(prompt, imagePath, generationType, negativePromptPrefix, initiator, prefixedPrompt, format);
             }
         };
-    }
-
-    if (isTrueBoolean(args?.quiet)) {
-        callback = () => { };
     }
 
     if (isFalseBoolean(args?.gallery)) {
