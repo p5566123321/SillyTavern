@@ -3056,9 +3056,10 @@ async function generatePicture(initiator, args, trigger, message, callback) {
         console.log('Processed image prompt:', prompt);
 
         // Extension hook for prompt processing
-        const eventData = { prompt, generationType, message, trigger };
+        const eventData = { prompt, generationType, message, trigger, negativePrompt: negativePromptPrefix };
         await eventSource.emit(event_types.SD_PROMPT_PROCESSING, eventData);
         prompt = eventData.prompt; // Allow extensions to modify the prompt
+        negativePromptPrefix = String(eventData.negativePrompt ?? negativePromptPrefix); // ...and the extra negative prompt
 
         if (typeof args?._abortController?.addEventListener === 'function') {
             args._abortController.addEventListener('abort', stopListener);
