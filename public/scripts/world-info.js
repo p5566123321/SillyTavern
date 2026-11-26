@@ -1057,7 +1057,7 @@ function registerWorldInfoSlashCommands() {
         return getContext().chat.filter(x => !x.is_system).map(x => x.mes);
     }
 
-    async function getEntriesFromFile(file, { args = {}, unnamed = null, callbackName = 'getEntriesFromFile' } = {}) {
+    async function getEntriesFromFile(file, { args = {}, unnamed = null, callbackName = 'getEntriesFromFile', quietIfEmpty = false } = {}) {
         if (!file || !world_names.includes(file)) {
             toastr.warning(t`Valid World Info file name is required`);
             logSlashCommandWarn(`${callbackName}: Valid World Info file name is required`, args, unnamed);
@@ -1075,6 +1075,10 @@ function registerWorldInfoSlashCommands() {
         const entries = Object.values(data.entries);
 
         if (!entries || entries.length === 0) {
+            // Searching an empty book is a normal "not found" (e.g. a fresh chat lorebook), not a user error
+            if (quietIfEmpty) {
+                return '';
+            }
             toastr.warning(t`World Info file has no entries`);
             logSlashCommandWarn(`${callbackName}: World Info file has no entries`, args, unnamed);
             return '';
@@ -1207,7 +1211,7 @@ function registerWorldInfoSlashCommands() {
         const file = args.file;
         const field = args.field || 'key';
 
-        const entries = await getEntriesFromFile(file, { args, unnamed: { value }, callbackName: 'findBookEntryCallback' });
+        const entries = await getEntriesFromFile(file, { args, unnamed: { value }, callbackName: 'findBookEntryCallback', quietIfEmpty: true });
 
         if (!entries) {
             return '';
