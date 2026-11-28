@@ -1418,13 +1418,13 @@ export async function replaceCurrentChat() {
             // pick existing chat
             characters[this_chid].chat = chats[0].file_name.replace('.jsonl', '');
             $('#selected_chat_pole').val(characters[this_chid].chat);
-            saveCharacterDebounced();
+            await saveCurrentCharacterChat();
             await getChat();
         } else {
             // start new chat
             characters[this_chid].chat = `${name2} - ${humanizedDateTime()}`;
             $('#selected_chat_pole').val(characters[this_chid].chat);
-            saveCharacterDebounced();
+            await saveCurrentCharacterChat();
             await getChat();
         }
     }
@@ -7795,9 +7795,9 @@ export async function openCharacterChat(file_name) {
     await clearChat({ clearData: true });
     characters[this_chid].chat = file_name;
     chat_metadata = {};
-    await getChat();
     $('#selected_chat_pole').val(file_name);
-    await createOrEditCharacter(new CustomEvent('newChat'));
+    await saveCurrentCharacterChat();
+    await getChat();
 }
 
 ////////// OPTIMZED MAIN API CHANGE FUNCTION ////////////
@@ -10707,8 +10707,8 @@ export async function doNewChat({ deleteCurrentChat = false } = {}) {
         chat_metadata = {};
         characters[this_chid].chat = `${name2} - ${humanizedDateTime()}`;
         $('#selected_chat_pole').val(characters[this_chid].chat);
+        await saveCurrentCharacterChat();
         await getChat();
-        await createOrEditCharacter(new CustomEvent('newChat'));
         if (deleteCurrentChat) await delChat(chat_file_for_del + '.jsonl');
     }
 }
@@ -10857,6 +10857,28 @@ export async function updateRemoteChatName(characterId, newName) {
     if (!mergeResponse.ok) {
         console.error('Failed to save extension field', mergeResponse.statusText);
     }
+}
+
+/**
+ * Remembers which chat the current character has open, then reloads the card from disk.
+ * Only the chat name is written: re-saving the whole editor form here would overwrite
+ * edits made to the card file outside this tab with the copy held in memory.
+ * @returns {Promise<void>}
+ */
+async function saveCurrentCharacterChat() {
+    const chid = this_chid;
+    const character = characters[chid];
+    if (!character) {
+        return;
+    }
+    await updateRemoteChatName(chid, character.chat);
+    await getOneCharacter(character.avatar);
+    if (String(chid) !== String(this_chid) || !characters[chid]) {
+        return;
+    }
+    select_selected_character(chid, { switchMenu: false });
+    $('#selected_chat_pole').val(characters[chid].chat);
+    await eventSource.emit(event_types.CHARACTER_EDITED, { detail: { id: chid, character: characters[chid] } });
 }
 
 
